@@ -1,0 +1,73 @@
+/g/g12/adcock4/.bashrc: line 2: module: command not found
+/g/g12/adcock4/.bashrc: line 3: module: command not found
+Sending output to /p/gpfs1/adcock4/1041368
+Invoking Legion on 1 rank(s), 1 node(s) (1 rank(s) per node), as follows:
+/usr/workspace/adcock4/ellipticSPDE/diffusion.exec -o /p/gpfs1/adcock4/1041368 -logfile /p/gpfs1/adcock4/1041368/%.log -ll:cpu 0 -ll:ocpu 1 -ll:onuma 0 -ll:okindhack -ll:othr 32 -ll:gpu 4 -ll:fsize 14500 -ll:zsize 1024 -ll:ib_zsize 1024 -ll:util 4 -ll:ahandlers 4 -ll:io 1 -ll:dma 2 -ll:csize 100000 -ll:rsize 0 -ll:ib_rsize 1024 -ll:gsize 0 -ll:stacksize 8 -ll:ostack 8 -lg:sched -1 -lg:hysteresis 0
+WARNING: Found 4 IB HCAs, but GASNet was configured without multi-rail support.  To utilize all your HCAs, you should reconfigure GASNet with '--enable-ibv-multirail --with-ibv-max-hcas=4'.  You can silence this warning by setting the environment variable GASNET_IBV_PORTS as described in the file 'gasnet/ibv-conduit/README'.
+after var nodes
+after fill
+after set_xk
+after set_abc
+after set_cd_star
+after calc_u
+sum= {0}
+
+------------------------------------------------------------
+Sender: LSF System <lsfadmin@lassen710>
+Subject: Job 1041368: <elliptic> in cluster <lassen> Done
+
+Job <elliptic> was submitted from host <lassen708> by user <adcock4> in cluster <lassen> at Tue Apr 28 22:06:16 2020
+Job was executed on host(s) <1*lassen710>, in queue <pbatch>, as user <adcock4> in cluster <lassen> at Tue Apr 28 22:11:19 2020
+                            <40*lassen480>
+</g/g12/adcock4> was used as the home directory.
+</usr/workspace/adcock4/ellipticSPDE> was used as the working directory.
+Started at Tue Apr 28 22:11:19 2020
+Terminated at Tue Apr 28 22:11:56 2020
+Results reported at Tue Apr 28 22:11:56 2020
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+#!/bin/bash -eu
+#BSUB -J elliptic
+#BSUB -alloc_flags smt1
+
+CORES_PER_NODE=40
+RAM_PER_NODE=100000
+GPUS_PER_NODE=4
+FB_PER_GPU=14500
+source "$SOLEIL_DIR"/src/jobscript_shared.sh
+GPUS_PER_RANK="${GPUS_PER_RANK:-0}"
+
+export GASNET_NUM_QPS=1
+jsrun -n "$NUM_RANKS" -r "$RANKS_PER_NODE" -a 1 -c "$CORES_PER_RANK" -g "$GPUS_PER_RANK" -b rs \
+    $COMMAND
+
+# Resources:
+# 2 NUMA domains per node
+# 20 cores per NUMA domain (2 more reserved for OS)
+# 4-way SMT per core
+# 128GB RAM per NUMA domain
+# 2 Tesla V100 GPUs per NUMA domain
+# 16GB FB per GPU
+
+------------------------------------------------------------
+
+Successfully completed.
+
+Resource usage summary:
+
+    CPU time :                                   0.22 sec.
+    Max Memory :                                 114 MB
+    Average Memory :                             114.00 MB
+    Total Requested Memory :                     -
+    Delta Memory :                               -
+    Max Swap :                                   183 MB
+    Max Processes :                              1
+    Max Threads :                                2
+    Run time :                                   36 sec.
+    Turnaround time :                            340 sec.
+
+The output (if any) is above this job summary.
+
