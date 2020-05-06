@@ -8,10 +8,8 @@ local C = regentlib.c
 -------------------------------------------------------------------------------
 -- TO DO: change these to be inputs from a json file so can run multiple samples at once w/ diff. inputs
 -------------------------------------------------------------------------------
-local NUM_GRID_POINTS = 7
 local k = 0.17
 --local k = C.drand48()
-local NUM_GPUS = 4
 
 -------------------------------------------------------------------------------
 -- CONSTANTS
@@ -39,12 +37,12 @@ local fspace Node {
 }
 
 __demand(__leaf, __parallel,  __cuda)
-task set_xk(nodes: region(ispace(int1d),Node))
+task set_xk(nodes: region(ispace(int1d),Node), num_grid_points: int)
 where
   writes(nodes.k_coeff),
   reads writes(nodes.x)
 do
-  var grid_spacing = DOMAIN_LENGTH/(NUM_GRID_POINTS-1.0);
+  var grid_spacing = DOMAIN_LENGTH/(num_grid_points-1.0);
   --C.printf('grid_spacing %f\n', grid_spacing)
   __demand(__openmp)
   for node in nodes do
@@ -134,14 +132,26 @@ end
 -- Here we set f=-1 and k is a random diffusivity
 -------------------------------------------------------------------------------
 task main()
-  var index_space = ispace(int1d, {NUM_GRID_POINTS})
+  C.printf('\n')
+  var args = regentlib.c.legion_runtime_get_input_args()
+
+  var num_grid_points = 0
+  for i = 1, args.argc do
+    if C.strcmp(args.argv[i], '-num_grid_points') == 0 and i < args.argc-1 then
+      num_grid_points = C.atoi(args.argv[i+1])
+    end
+  end
+
+  C.printf('num_grid_points: %d \n', num_grid_points)
+
+  var index_space = ispace(int1d, {num_grid_points})
   var nodes = region(index_space, Node) 
   C.printf("after var nodes\n")
 
   fill(nodes.d, F)
   C.printf("after fill\n")
 
-  set_xk(nodes)
+  set_xk(nodes, num_grid_points)
   C.printf("after set_xk\n")
 
   --var c0 = ispace(int1d, NUM_GPUS)
@@ -154,10 +164,10 @@ task main()
   nodes[0].b = 1.0;
   nodes[0].c = 0.0;
   nodes[0].d = U_0;
-  nodes[NUM_GRID_POINTS-1].a = 0.0;
-  nodes[NUM_GRID_POINTS-1].b = 1.0;
-  nodes[NUM_GRID_POINTS-1].c = 0.0;
-  nodes[NUM_GRID_POINTS-1].d = U_1;
+  nodes[num_grid_points-1].a = 0.0;
+  nodes[num_grid_points-1].b = 1.0;
+  nodes[num_grid_points-1].c = 0.0;
+  nodes[num_grid_points-1].d = U_1;
 
   C.printf("after set_abc\n")
  
