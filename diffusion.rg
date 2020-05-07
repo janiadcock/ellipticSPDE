@@ -19,6 +19,7 @@ local DOMAIN_LENGTH = 1.0 -- length of the domain (starts at 0)
 local U_0 = 0.0 -- set left boundary value for unknowns
 local U_1 = 0.0 -- set right boundary value for unknowns
 local F = -1.0 -- set forcing term value
+local MAX_NUM_GPUS = 20
 
 -------------------------------------------------------------------------------
 -- TASKS
@@ -55,18 +56,30 @@ do
   end
 end
 
-__demand(__leaf, __cuda)
-task set_abc(nodes: region(ispace(int1d),Node))
+--__demand(__leaf, __cuda)
+task set_abc(nodes: region(ispace(int1d),Node), i_lb: int, i_ub: int, lb_k_coeff: double, ub_k_coeff: double, lb_x: double, ub_x: double)
 where
   reads(nodes.{x, k_coeff}),
   writes(nodes.{a, b, c})
 do
-  __demand(__openmp)
+  --C.printf('in set_abc\n')
+  --__demand(__openmp)
   for node in nodes do
-    var i = int1d(node)
-    node.a = (0.5*(node.k_coeff + nodes[i-1].k_coeff) / (node.x-nodes[i-1].x)) / (0.5*(node.x - nodes[i-1].x));
-    node.b = ((-1.0)*0.5*(nodes[i+1].k_coeff + node.k_coeff) / (nodes[i+1].x - node.x) + (-1.0)*0.5*(node.k_coeff + nodes[i-1].k_coeff) / (node.x - nodes[i-1].x)) / (0.5*(nodes[i+1].x - nodes[i-1].x));
-    node.c = (0.5*(nodes[i+1].k_coeff + node.k_coeff) / (nodes[i+1].x - node.x)) / (0.5*(nodes[i+1].x - nodes[i-1].x)); 
+    --C.printf('in for loop\n')
+    var i = (int) (int1d(node))
+    if i == i_lb then
+      node.a = (0.5*(node.k_coeff + lb_k_coeff) / (node.x-lb_x)) / (0.5*(node.x - lb_x));
+      node.b = ((-1.0)*0.5*(nodes[i+1].k_coeff + node.k_coeff) / (nodes[i+1].x - node.x) + (-1.0)*0.5*(node.k_coeff + lb_k_coeff) / (node.x - lb_x)) / (0.5*(nodes[i+1].x - lb_x));
+      node.c = (0.5*(nodes[i+1].k_coeff + node.k_coeff) / (nodes[i+1].x - node.x)) / (0.5*(nodes[i+1].x - lb_x)); 
+    elseif i == i_ub then
+      node.a = (0.5*(node.k_coeff + nodes[i-1].k_coeff) / (node.x-nodes[i-1].x)) / (0.5*(node.x - nodes[i-1].x));
+      node.b = ((-1.0)*0.5*(ub_k_coeff + node.k_coeff) / (ub_x - node.x) + (-1.0)*0.5*(node.k_coeff + nodes[i-1].k_coeff) / (node.x - nodes[i-1].x)) / (0.5*(ub_x - nodes[i-1].x));
+      node.c = (0.5*(ub_k_coeff + node.k_coeff) / (ub_x - node.x)) / (0.5*(ub_x - nodes[i-1].x)); 
+    else
+      node.a = (0.5*(node.k_coeff + nodes[i-1].k_coeff) / (node.x-nodes[i-1].x)) / (0.5*(node.x - nodes[i-1].x));
+      node.b = ((-1.0)*0.5*(nodes[i+1].k_coeff + node.k_coeff) / (nodes[i+1].x - node.x) + (-1.0)*0.5*(node.k_coeff + nodes[i-1].k_coeff) / (node.x - nodes[i-1].x)) / (0.5*(nodes[i+1].x - nodes[i-1].x));
+      node.c = (0.5*(nodes[i+1].k_coeff + node.k_coeff) / (nodes[i+1].x - node.x)) / (0.5*(nodes[i+1].x - nodes[i-1].x)); 
+    end
   end
 end
 
@@ -136,17 +149,43 @@ task main()
   var args = regentlib.c.legion_runtime_get_input_args()
 
   var num_grid_points = 0
+  var num_GPUs = 0
   for i = 1, args.argc do
     if C.strcmp(args.argv[i], '-num_grid_points') == 0 and i < args.argc-1 then
       num_grid_points = C.atoi(args.argv[i+1])
+    elseif C.strcmp(args.argv[i], '-num_GPUs') == 0 and i < args.argc-1 then
+      num_GPUs = C.atoi(args.argv[i+1])
     end
   end
-
-  C.printf('num_grid_points: %d \n', num_grid_points)
 
   var index_space = ispace(int1d, {num_grid_points})
   var nodes = region(index_space, Node) 
   C.printf("after var nodes\n")
+
+  -- this is floor; would be better to round
+  var partition_size = (int) ((double) (num_grid_points)/num_GPUs)
+
+  var colors = ispace(int1d, {num_GPUs})
+  var coloring = regentlib.c.legion_domain_point_coloring_create()
+  for i = 0, num_GPUs do
+    var range = rect1d{0, 1} --initializing range
+    if i == num_GPUs-1 then
+      range = rect1d{partition_size*i, num_grid_points-1}
+    else
+      range = rect1d{partition_size*i, partition_size*(i+1)-1}
+    end
+    regentlib.c.legion_domain_point_coloring_color_domain(coloring, [int1d](i), range)
+  end
+  var nodes_partition = partition(disjoint, nodes, coloring, colors)
+  regentlib.c.legion_domain_point_coloring_destroy(coloring)
+
+  -- check partition correct
+  for c in colors do
+    C.printf('color %d \n', c)
+    for node in nodes_partition[c] do
+      C.printf('    node %d \n', int1d(node))
+    end
+  end
 
   fill(nodes.d, F)
   C.printf("after fill\n")
@@ -154,10 +193,34 @@ task main()
   set_xk(nodes, num_grid_points)
   C.printf("after set_xk\n")
 
-  --var c0 = ispace(int1d, NUM_GPUS)
-  --var p0 = partition(equal, nodes, c0)
-  
-  set_abc(nodes)
+  var lb_is: double[MAX_NUM_GPUS]
+  var ub_is: double[MAX_NUM_GPUS]
+  var lb_k_coeffs: double[MAX_NUM_GPUS]
+  var ub_k_coeffs: double[MAX_NUM_GPUS]
+  var lb_xs: double[MAX_NUM_GPUS]
+  var ub_xs: double[MAX_NUM_GPUS]
+
+  -- make this a CUDA task if works
+  for i=0,num_GPUs do
+    var i_lb = partition_size*i-1
+    var i_ub = partition_size*(i+1)
+    var node_lb = nodes[i_lb]
+    var node_ub = nodes[i_ub]
+    lb_is[i] = i_lb
+    ub_is[i] = i_ub
+    lb_k_coeffs[i] = node_lb.k_coeff
+    ub_k_coeffs[i] = node_ub.k_coeff
+    lb_xs[i] = node_lb.x
+    ub_xs[i] = node_ub.x
+  end
+ 
+  C.printf("before set_abc\n") 
+  --set_abc(nodes)
+  for c in colors do
+    --lb not used for c==0, ub not used for c==num_GPUs-1
+    var i = (int) (c)
+    set_abc(nodes_partition[c], lb_is[i], ub_is[i], lb_k_coeffs[i], ub_k_coeffs[i], lb_xs[i], ub_xs[i])
+  end  
 
   -- correct boundary nodes 
   nodes[0].a = 0.0;
